@@ -1,6 +1,8 @@
 package data_center
 
-import "ECDC_SIM/internal/pkg/util"
+import (
+	"ECDC_SIM/internal/pkg/util"
+)
 
 type DiskState int8
 
@@ -11,8 +13,8 @@ const (
 )
 
 type Disk struct {
-	stripeId               int
-	stripeIndex            int
+	stripeId               []int
+	stripeIndex            []int
 	state                  DiskState
 	diskFailDistribution   *util.Weibull
 	diskRepairDistribution *util.Weibull
@@ -43,4 +45,8 @@ func NewDisksManager(disksNum, diskCap int, dFailD, dRepairD *util.Weibull) *Dis
 		})
 	}
 	return disksManager
+}
+
+func (dm *DisksManager) SetDiskStripe(diskId, stripeId, stripeIdx int) {
+	dm.disks[diskId].stripeId, dm.disks[diskId].stripeIndex = append(dm.disks[diskId].stripeId, stripeId), append(dm.disks[diskId].stripeIndex, stripeIdx)
 }

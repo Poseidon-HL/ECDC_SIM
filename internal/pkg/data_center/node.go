@@ -100,6 +100,12 @@ func (nm *NodesManager) FailNode(nodeId int, currentTime float64) {
 	}
 }
 
+func (nm *NodesManager) RepairNode(nodeId int) {
+	if nm.isValidNodeId(nodeId) {
+		nm.nodes[nodeId].Repair()
+	}
+}
+
 func (nm *NodesManager) OnlineNode(nodeId int) {
 	if nm.isValidNodeId(nodeId) {
 		nm.nodes[nodeId].Online()
@@ -110,4 +116,25 @@ func (nm *NodesManager) OfflineNode(nodeId int) {
 	if nm.isValidNodeId(nodeId) {
 		nm.nodes[nodeId].Offline()
 	}
+}
+
+func (nm *NodesManager) GetTransitRepairDistribution(nodeId int) *util.Weibull {
+	if nm.isValidNodeId(nodeId) {
+		return nm.nodes[nodeId].nodeTransientRepairDistribution
+	}
+	return nil
+}
+
+func (nm *NodesManager) GetTransitFailDistribution(nodeId int) *util.Weibull {
+	if nm.isValidNodeId(nodeId) {
+		return nm.nodes[nodeId].nodeTransientFailDistribution
+	}
+	return nil
+}
+
+func (nm *NodesManager) GetNodeFailDistribution(nodeId int) *util.Weibull {
+	if nm.isValidNodeId(nodeId) {
+		return nm.nodes[nodeId].nodeFailDistribution
+	}
+	return nil
 }

@@ -32,6 +32,8 @@ type DCManager struct {
 	erasureCodeConf *ErasureCodeConf
 	stripesLocation [][]int
 	missionTime     float64
+	useTrace        bool
+	usePowerOutage  bool
 }
 
 type DCConf struct {
@@ -49,6 +51,8 @@ type DCConf struct {
 	maxCrossRackRepairBandwidth float64
 	maxIntraRackRepairBandwidth float64
 	missionTime                 float64
+	useTrace                    bool
+	usePowerOutage              bool
 }
 
 func InitDCManager(dcConf *DCConf, eCConf *ErasureCodeConf) {
@@ -62,6 +66,8 @@ func InitDCManager(dcConf *DCConf, eCConf *ErasureCodeConf) {
 		dataChunksNum:   dcConf.dataChunksNum,
 		erasureCodeConf: eCConf,
 		missionTime:     dcConf.missionTime,
+		useTrace:        dcConf.useTrace,
+		usePowerOutage:  dcConf.usePowerOutage,
 	}
 	dcManager.nodesManager = NewNodesManager(dcConf.racksNum*dcConf.nodesPerRack, dcConf.nFailD, dcConf.nTFailD, dcConf.nTRepairD)
 	dcManager.disksManager = NewDisksManager(dcManager.nodesManager.nodesNum*dcConf.disksPerNode, dcConf.diskCapacity, dcConf.dFailD, dcConf.dRepairD)
@@ -102,6 +108,14 @@ func (dcm *DCManager) GetDiskIdByNodeId(nodeId int, offset int) int {
 	return nodeId*dcm.disksPerNode + offset
 }
 
+func (dcm *DCManager) GetNodeIdByRackId(rackId int, offset int) int {
+	return rackId*dcm.nodesPerRack + offset
+}
+
+func (dcm *DCManager) GetNodeIdByDiskId(diskId int) int {
+	return diskId / dcm.disksPerNode
+}
+
 func (dcm *DCManager) isValidStripeId(stripeId int) bool {
 	return stripeId >= 0 && stripeId < len(dcm.stripesLocation)
 }
@@ -127,6 +141,14 @@ func (dcm *DCManager) GetChunkSize() int {
 
 func (dcm *DCManager) GetMissionTime() float64 {
 	return dcm.missionTime
+}
+
+func (dcm *DCManager) UseTrace() bool {
+	return dcm.useTrace
+}
+
+func (dcm *DCManager) UsePowerOutage() bool {
+	return dcm.usePowerOutage
 }
 
 // GenerateDataPlacement 生成数据块放置策略

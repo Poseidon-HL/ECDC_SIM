@@ -53,6 +53,14 @@ func (d *Disk) Online(currentTime float64) {
 	}
 }
 
+func (d *Disk) Repair(currentTime float64) {
+	d.state = DiskStateNormal
+	d.diskClock.unavailableTime += currentTime - d.diskClock.unavailableStart
+	d.diskClock.globalTime = d.diskClock.lastUpdateTime
+	d.diskClock.localTime = 0
+	d.diskClock.repairTime = 0
+}
+
 func (d *Disk) GetStripes() []int {
 	return d.stripeId
 }
@@ -110,6 +118,17 @@ func (dm *DisksManager) GetDiskState(diskId int) DiskState {
 func (dm *DisksManager) FailDisk(diskId int, currentTime float64) {
 	if dm.isValidDiskId(diskId) {
 		dm.disks[diskId].Fail(currentTime)
+		// TODO check logic here
+		dm.failedDiskMap[diskId] = diskId
+		dm.failedDiskNum++
+	}
+}
+
+func (dm *DisksManager) RepairDisk(diskId int, currentTime float64) {
+	if dm.isValidDiskId(diskId) {
+		dm.disks[diskId].Repair(currentTime)
+		delete(dm.failedDiskMap, diskId)
+		dm.failedDiskNum--
 	}
 }
 
@@ -128,6 +147,20 @@ func (dm *DisksManager) OnlineDisk(diskId int, currentTime float64) {
 func (dm *DisksManager) GetDiskStripes(diskId int) []int {
 	if dm.isValidDiskId(diskId) {
 		return dm.disks[diskId].GetStripes()
+	}
+	return nil
+}
+
+func (dm *DisksManager) GetDiskRepairDistribution(diskId int) *util.Weibull {
+	if dm.isValidDiskId(diskId) {
+		return dm.disks[diskId].diskRepairDistribution
+	}
+	return nil
+}
+
+func (dm *DisksManager) GetDiskFailDistribution(diskId int) *util.Weibull {
+	if dm.isValidDiskId(diskId) {
+		return dm.disks[diskId].diskFailDistribution
 	}
 	return nil
 }

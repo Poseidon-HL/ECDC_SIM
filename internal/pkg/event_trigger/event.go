@@ -76,6 +76,14 @@ type EventManager struct {
 	delayedRepairDict           map[int][]int
 }
 
+func NewEventManager() *EventManager {
+	return &EventManager{
+		eventQueue:        NewEventHeap(make([]*Event, 0)),
+		waitQueue:         NewEventHeap(make([]*Event, 0)),
+		delayedRepairDict: make(map[int][]int),
+	}
+}
+
 type EventHandlerFunc func(em *EventManager, event *Event, dList []int, bList []float64) (*Event, error)
 
 func DiskFailHandler(em *EventManager, event *Event, dList []int, bList []float64) (*Event, error) {

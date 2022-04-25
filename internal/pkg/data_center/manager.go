@@ -6,6 +6,10 @@ import (
 	"github.com/gogap/logrus"
 )
 
+var (
+	dcManager *DCManager
+)
+
 type DCState int8
 
 const (
@@ -18,6 +22,7 @@ type DCManager struct {
 	disksManager    *DisksManager
 	nodesManager    *NodesManager
 	rackManager     *RacksManager
+	networkManager  *NetworkManager
 	disksPerNode    int // 每一节点上的磁盘数
 	nodesPerRack    int // 每一机架上的节点数
 	stripesNum      int
@@ -26,39 +31,135 @@ type DCManager struct {
 	dataChunksNum   int
 	erasureCodeConf *ErasureCodeConf
 	stripesLocation [][]int
+	missionTime     float64
+	useTrace        bool
+	usePowerOutage  bool
 }
 
 type DCConf struct {
-	racksNum                   int
-	stripesNum                 int
-	disksPerNode               int
-	diskCapacity               int
-	nodesPerRack               int
-	chunkNum                   int
-	chunkSize                  int
-	dataChunksNum              int
-	nFailD, nTFailD, nTRepairD *util.Weibull
-	dFailD, dRepairD           *util.Weibull
-	rFailD, rRepairD           *util.Weibull
+	RacksNum                    int
+	StripesNum                  int
+	DisksPerNode                int
+	DiskCapacity                int
+	NodesPerRack                int
+	ChunkNum                    int
+	ChunkSize                   int
+	DataChunksNum               int
+	NFailD, NTFailD, NTRepairD  *util.Weibull
+	DFailD, DRepairD            *util.Weibull
+	RFailD, RRepairD            *util.Weibull
+	MaxCrossRackRepairBandwidth float64
+	MaxIntraRackRepairBandwidth float64
+	MissionTime                 float64
+	UseTrace                    bool
+	UsePowerOutage              bool
+	UseNetwork                  bool
 }
 
-func InitDCManager(dcConf *DCConf, eCConf *ErasureCodeConf) *DCManager {
-	dcManager := &DCManager{
+func InitDCManager(dcConf *DCConf, eCConf *ErasureCodeConf) {
+	dcManager = &DCManager{
 		state:           OK,
-		disksPerNode:    dcConf.disksPerNode,
-		nodesPerRack:    dcConf.nodesPerRack,
-		stripesNum:      dcConf.stripesNum,
-		chunksNum:       dcConf.chunkNum,
-		chunkSize:       dcConf.chunkSize,
-		dataChunksNum:   dcConf.dataChunksNum,
+		disksPerNode:    dcConf.DisksPerNode,
+		nodesPerRack:    dcConf.NodesPerRack,
+		stripesNum:      dcConf.StripesNum,
+		chunksNum:       dcConf.ChunkNum,
+		chunkSize:       dcConf.ChunkSize,
+		dataChunksNum:   dcConf.DataChunksNum,
 		erasureCodeConf: eCConf,
+		missionTime:     dcConf.MissionTime,
+		useTrace:        dcConf.UseTrace,
+		usePowerOutage:  dcConf.UsePowerOutage,
 	}
-	dcManager.nodesManager = NewNodesManager(dcConf.racksNum*dcConf.nodesPerRack, dcConf.nFailD, dcConf.nTFailD, dcConf.nTRepairD)
-	dcManager.disksManager = NewDisksManager(dcManager.nodesManager.nodesNum*dcConf.disksPerNode, dcConf.diskCapacity, dcConf.dFailD, dcConf.dRepairD)
-	dcManager.rackManager = NewRacksManager(dcConf.racksNum, dcConf.rFailD, dcConf.rRepairD)
+	dcManager.nodesManager = NewNodesManager(dcConf.RacksNum*dcConf.NodesPerRack, dcConf.NFailD, dcConf.NTFailD, dcConf.NTRepairD)
+	dcManager.disksManager = NewDisksManager(dcManager.nodesManager.nodesNum*dcConf.DisksPerNode, dcConf.DiskCapacity, dcConf.DFailD, dcConf.DRepairD)
+	dcManager.rackManager = NewRacksManager(dcConf.RacksNum, dcConf.RFailD, dcConf.RRepairD)
+	dcManager.networkManager = NewNetworkManager(dcConf.RacksNum, dcConf.UseNetwork, dcConf.MaxCrossRackRepairBandwidth, dcConf.MaxIntraRackRepairBandwidth)
+	return
+}
+
+func GetDCManager() *DCManager {
 	return dcManager
 }
 
+func (dcm *DCManager) Reset() {
+	dcm.disksManager.Reset(0)
+	dcm.nodesManager.Reset(0)
+	dcm.rackManager.Reset(0)
+	dcm.networkManager.Reset()
+}
+
+func (dcm *DCManager) DiskManager() *DisksManager {
+	return dcm.disksManager
+}
+
+func (dcm *DCManager) NodeManager() *NodesManager {
+	return dcm.nodesManager
+}
+
+func (dcm *DCManager) RackManager() *RacksManager {
+	return dcm.rackManager
+}
+
+func (dcm *DCManager) Network() *NetworkManager {
+	return dcm.networkManager
+}
+
+func (dcm *DCManager) ErasureCodeConf() *ErasureCodeConf {
+	return dcm.erasureCodeConf
+}
+
+func (dcm *DCManager) GetRackIdByDiskId(diskId int) int {
+	return diskId / dcm.nodesPerRack * dcm.disksPerNode
+}
+
+func (dcm *DCManager) GetDiskIdByNodeId(nodeId int, offset int) int {
+	return nodeId*dcm.disksPerNode + offset
+}
+
+func (dcm *DCManager) GetNodeIdByRackId(rackId int, offset int) int {
+	return rackId*dcm.nodesPerRack + offset
+}
+
+func (dcm *DCManager) GetNodeIdByDiskId(diskId int) int {
+	return diskId / dcm.disksPerNode
+}
+
+func (dcm *DCManager) isValidStripeId(stripeId int) bool {
+	return stripeId >= 0 && stripeId < len(dcm.stripesLocation)
+}
+
+func (dcm *DCManager) GetStripesLocation(stripeId int) []int {
+	if dcm.isValidStripeId(stripeId) {
+		return dcm.stripesLocation[stripeId]
+	}
+	return nil
+}
+
+func (dcm *DCManager) GetNodesPerRack() int {
+	return dcm.nodesPerRack
+}
+
+func (dcm *DCManager) GetDisksPerNode() int {
+	return dcm.disksPerNode
+}
+
+func (dcm *DCManager) GetChunkSize() int {
+	return dcm.chunkSize
+}
+
+func (dcm *DCManager) GetMissionTime() float64 {
+	return dcm.missionTime
+}
+
+func (dcm *DCManager) UseTrace() bool {
+	return dcm.useTrace
+}
+
+func (dcm *DCManager) UsePowerOutage() bool {
+	return dcm.usePowerOutage
+}
+
+// GenerateDataPlacement 生成数据块放置策略
 func (dcm *DCManager) GenerateDataPlacement() {
 	var err error
 	switch dcm.erasureCodeConf.CodeType {
@@ -105,4 +206,44 @@ func (dcm *DCManager) GetDiskRandomlyByRack(rackId int) int {
 		return minDiskNumber
 	}
 	return util.RandomInt(minDiskNumber, maxDiskNumber)
+}
+
+func (dcm *DCManager) CheckDataLoss() (bool, int, int) {
+	failedDiskMap := dcm.disksManager.GetFailedDiskMap()
+	// TODO check logic here
+	stripeIdList := make([]int, 0)
+	for _, failedDisk := range failedDiskMap {
+		stripeIdList = append(stripeIdList, dcm.disksManager.GetDiskStripes(failedDisk)...)
+	}
+	var dataLoss bool
+	var failedStripes int
+	var lostChunks int
+	switch dcm.erasureCodeConf.CodeType {
+	case RS:
+		for _, stripeId := range stripeIdList {
+			curStripeFailedDiskNum := 0
+			curStripeLostChunksNum := 0
+			for _, stripeDiskId := range dcm.stripesLocation[stripeId] {
+				if _, ok := failedDiskMap[stripeDiskId]; ok {
+					curStripeFailedDiskNum += 1
+					curStripeLostChunksNum += 1
+				}
+			}
+			if curStripeFailedDiskNum > dcm.erasureCodeConf.N-dcm.erasureCodeConf.K {
+				dataLoss = true
+				failedStripes += 1
+				lostChunks += curStripeLostChunksNum
+			}
+		}
+		return dataLoss, failedStripes, lostChunks
+	case LRC:
+	}
+
+	return false, 0, 0
+}
+
+func (dcm *DCManager) GetBlockedRatio(currentTime float64) float64 {
+	sumOfUnavailingTime := dcm.disksManager.GetSumOfDiskUnavailableTime(currentTime)
+	logrus.Infof("[GetBlockedRatio] sumOfUnavailingTime=%+v", sumOfUnavailingTime)
+	return sumOfUnavailingTime / (float64(dcm.chunksNum) * currentTime)
 }

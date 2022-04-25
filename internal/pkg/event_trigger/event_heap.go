@@ -1,6 +1,10 @@
 package event_trigger
 
-import "container/heap"
+import (
+	"container/heap"
+	"github.com/gogap/logrus"
+	"reflect"
+)
 
 type EventHeap []*Event
 
@@ -32,4 +36,13 @@ func NewEventHeap(eventList []*Event) *EventHeap {
 	}
 	heap.Init(eventQueue)
 	return eventQueue
+}
+
+func (eq *EventHeap) Get() *Event {
+	eventInterface := heap.Pop(eq)
+	event, ok := eventInterface.(*Event)
+	if !ok {
+		logrus.Errorf("[EventHeap.Get] event type error, type=%+v", reflect.TypeOf(event))
+	}
+	return event
 }

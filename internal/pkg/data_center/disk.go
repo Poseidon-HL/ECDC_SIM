@@ -2,6 +2,7 @@ package data_center
 
 import (
 	"ECDC_SIM/internal/pkg/util"
+	"github.com/gogap/logrus"
 )
 
 type DiskState int8
@@ -10,14 +11,67 @@ const (
 	DiskStateNormal DiskState = iota
 	DiskStateUnavailable
 	DiskStateCrashed
+	Undefined
 )
 
 type Disk struct {
+	diskClock              *DeviceClock
 	stripeId               []int
 	stripeIndex            []int
+	chunkNum               int
 	state                  DiskState
 	diskFailDistribution   *util.Weibull
 	diskRepairDistribution *util.Weibull
+}
+
+func (d *Disk) ResetState() {
+	d.state = DiskStateNormal
+}
+
+func (d *Disk) GetState() DiskState {
+	return d.state
+}
+
+func (d *Disk) Fail(currentTime float64) {
+	if d.state == DiskStateNormal {
+		d.diskClock.unavailableStart = currentTime
+	}
+	d.state = DiskStateCrashed
+	d.diskClock.repairStart = currentTime
+	d.diskClock.repairTime = 0
+}
+
+func (d *Disk) Offline(currentTime float64) {
+	if d.state == DiskStateNormal {
+		d.state = DiskStateUnavailable
+		d.diskClock.unavailableStart = currentTime
+	}
+}
+
+func (d *Disk) Online(currentTime float64) {
+	if d.state == DiskStateUnavailable {
+		d.state = DiskStateNormal
+		d.diskClock.unavailableTime += currentTime - d.diskClock.unavailableStart
+	}
+}
+
+func (d *Disk) Repair(currentTime float64) {
+	d.state = DiskStateNormal
+	d.diskClock.unavailableTime += currentTime - d.diskClock.unavailableStart
+	d.diskClock.globalTime = d.diskClock.lastUpdateTime
+	d.diskClock.localTime = 0
+	d.diskClock.repairTime = 0
+}
+
+func (d *Disk) GetUnavailableTime(currentTime float64) float64 {
+	if d.state == DiskStateNormal {
+		return d.diskClock.unavailableTime
+	}
+	return d.diskClock.unavailableTime + currentTime - d.diskClock.unavailableStart
+}
+
+func (d *Disk) GetStripes() []int {
+	return d.stripeId
 }
 
 type DisksManager struct {
@@ -39,6 +93,7 @@ func NewDisksManager(disksNum, diskCap int, dFailD, dRepairD *util.Weibull) *Dis
 	}
 	for i := 0; i < disksNum; i++ {
 		disksManager.disks = append(disksManager.disks, &Disk{
+			diskClock:              new(DeviceClock),
 			state:                  DiskStateNormal,
 			diskFailDistribution:   dFailD,
 			diskRepairDistribution: dRepairD,
@@ -49,4 +104,104 @@ func NewDisksManager(disksNum, diskCap int, dFailD, dRepairD *util.Weibull) *Dis
 
 func (dm *DisksManager) SetDiskStripe(diskId, stripeId, stripeIdx int) {
 	dm.disks[diskId].stripeId, dm.disks[diskId].stripeIndex = append(dm.disks[diskId].stripeId, stripeId), append(dm.disks[diskId].stripeIndex, stripeIdx)
+	dm.disks[diskId].chunkNum++
+}
+
+func (dm *DisksManager) Reset(currentTime float64) {
+	for _, disk := range dm.disks {
+		disk.diskClock.Init(currentTime)
+		disk.ResetState()
+	}
+	dm.failedDiskNum = 0
+	dm.unavailableDiskNum = 0
+	dm.unavailableDiskMap = make(map[int]int)
+	dm.failedDiskMap = make(map[int]int)
+}
+
+func (dm *DisksManager) isValidDiskId(diskId int) bool {
+	return diskId >= 0 && diskId < len(dm.disks)
+}
+
+func (dm *DisksManager) GetDiskState(diskId int) DiskState {
+	if dm.isValidDiskId(diskId) {
+		return dm.disks[diskId].GetState()
+	}
+	return Undefined
+}
+
+func (dm *DisksManager) FailDisk(diskId int, currentTime float64) {
+	if dm.isValidDiskId(diskId) {
+		dm.disks[diskId].Fail(currentTime)
+		// TODO check logic here
+		dm.failedDiskMap[diskId] = diskId
+		dm.failedDiskNum++
+	}
+}
+
+func (dm *DisksManager) RepairDisk(diskId int, currentTime float64) {
+	if dm.isValidDiskId(diskId) {
+		dm.disks[diskId].Repair(currentTime)
+		delete(dm.failedDiskMap, diskId)
+		dm.failedDiskNum--
+	}
+}
+
+func (dm *DisksManager) OfflineDisk(diskId int, currentTime float64) {
+	if dm.isValidDiskId(diskId) {
+		dm.disks[diskId].Offline(currentTime)
+	}
+}
+
+func (dm *DisksManager) OnlineDisk(diskId int, currentTime float64) {
+	if dm.isValidDiskId(diskId) {
+		dm.disks[diskId].Online(currentTime)
+	}
+}
+
+func (dm *DisksManager) GetDiskStripes(diskId int) []int {
+	if dm.isValidDiskId(diskId) {
+		return dm.disks[diskId].GetStripes()
+	}
+	return nil
+}
+
+func (dm *DisksManager) GetDiskRepairDistribution(diskId int) *util.Weibull {
+	if dm.isValidDiskId(diskId) {
+		return dm.disks[diskId].diskRepairDistribution
+	}
+	return nil
+}
+
+func (dm *DisksManager) GetDiskFailDistribution(diskId int) *util.Weibull {
+	if dm.isValidDiskId(diskId) {
+		return dm.disks[diskId].diskFailDistribution
+	}
+	return nil
+}
+
+func (dm *DisksManager) GetDiskNum() int {
+	return len(dm.disks)
+}
+
+func (dm *DisksManager) GetFailedDiskMap() map[int]int {
+	return dm.failedDiskMap
+}
+
+func (dm *DisksManager) GetDiskUnavailableTime(diskId int, currentTime float64) float64 {
+	if dm.isValidDiskId(diskId) {
+		return dm.disks[diskId].GetUnavailableTime(currentTime) * float64(dm.disks[diskId].chunkNum)
+	}
+	return 0
+}
+
+func (dm *DisksManager) GetSumOfDiskUnavailableTime(currentTime float64) float64 {
+	var sumTime float64
+	for id, disk := range dm.disks {
+		unavailableTime := disk.GetUnavailableTime(currentTime)
+		if unavailableTime != 0 {
+			logrus.Infof("[DisksManager.GetSumOfDiskUnavailableTime] disk: %d, unavailableTime: %+v", id, unavailableTime)
+		}
+		sumTime += unavailableTime
+	}
+	return sumTime
 }

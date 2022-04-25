@@ -39,10 +39,10 @@ func (s *Simulator) RunIteration(iteration int) *SimResult {
 	logrus.Infof("[Simulator.RunIteration] ite=%d", iteration)
 	for {
 		eventExecRes := s.eventManager.HandleNextEvent(currentTime)
+		currentTime = eventExecRes.EventTime
 		if eventExecRes.EventTime > s.dcConf.MissionTime {
 			break
 		}
-		currentTime = eventExecRes.EventTime
 		switch eventExecRes.EventType {
 		case event_trigger.EventDiskFail, event_trigger.EventNodeFail:
 			dataLoss, failedStripesNum, lostChunkNum := data_center.GetDCManager().CheckDataLoss()

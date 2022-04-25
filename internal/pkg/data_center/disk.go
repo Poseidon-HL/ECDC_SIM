@@ -196,10 +196,10 @@ func (dm *DisksManager) GetDiskUnavailableTime(diskId int, currentTime float64) 
 
 func (dm *DisksManager) GetSumOfDiskUnavailableTime(currentTime float64) float64 {
 	var sumTime float64
-	for _, disk := range dm.disks {
+	for id, disk := range dm.disks {
 		unavailableTime := disk.GetUnavailableTime(currentTime)
 		if unavailableTime != 0 {
-			logrus.Infof("[DisksManager.GetSumOfDiskUnavailableTime] disk: %d, unavailableTime: %+v", disk, unavailableTime)
+			logrus.Infof("[DisksManager.GetSumOfDiskUnavailableTime] disk: %d, unavailableTime: %+v", id, unavailableTime)
 		}
 		sumTime += unavailableTime
 	}

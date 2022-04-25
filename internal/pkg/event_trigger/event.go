@@ -57,6 +57,26 @@ func (e *Event) isValidEvent() bool {
 	return len(e.deviceIdList) > 0
 }
 
+func (e *Event) EventType() string {
+	switch e.eventType {
+	case EventNodeFail:
+		return "NodeFail"
+	case EventNodeTransientFail:
+		return "NodeTransientFail"
+	case EventNodeTransientRepair:
+		return "NodeTransientRepair"
+	case EventDiskFail:
+		return "DiskFail"
+	case EventDiskRepair:
+		return "DiskRepair"
+	case EventRackFail:
+		return "RackFail"
+	case EventRackRepair:
+		return "RackRepair"
+	}
+	return ""
+}
+
 func NewEvent(eventTime float64, eventType EventType, deviceType DeviceType, bandwidth float64, dIdList []int) *Event {
 	return &Event{
 		eventTime:    eventTime,
@@ -100,14 +120,14 @@ func (em *EventManager) ResetEventManager() {
 	for idx := 0; idx < diskM.GetDiskNum(); idx++ {
 		diskFailTime := diskM.GetDiskFailDistribution(idx).Draw()
 		if diskFailTime <= dcManager.GetMissionTime() {
-			logrus.Infof("[EventManager.ResetEventManager] generate disk fail eventTime=%+v", diskFailTime)
+			//logrus.Infof("[EventManager.ResetEventManager] generate disk fail eventTime=%+v", diskFailTime)
 			eventQueue = append(eventQueue, NewEvent(diskFailTime, EventDiskFail, Disk, 0, []int{idx}))
 		}
 	}
 
 	for idx := 0; idx < nodeM.GetNodeNum(); idx++ {
 		nodeFailTime := nodeM.GetNodeFailDistribution(idx).Draw()
-		logrus.Infof("[EventManager.ResetEventManager] generate node fail eventTime=%+v", nodeFailTime)
+		//logrus.Infof("[EventManager.ResetEventManager] generate node fail eventTime=%+v", nodeFailTime)
 		eventQueue = append(eventQueue, NewEvent(nodeFailTime, EventNodeFail, Node, 0, []int{idx}))
 		// TODO transient failure
 	}
@@ -307,6 +327,7 @@ func (em *EventManager) HandleNextEvent(currentTime float64) *EventExecResult {
 		return &EventExecResult{EventTime: event.eventTime, EventType: EventMissionEnd}
 	}
 	if handleFunc, ok := EventHandlerFuncMap[event.eventType]; ok {
+		logrus.Infof("[EventManager.HandleNextEvent] receive event, time=%+v, type=%s, deviceList=%+v", event.eventTime, event.EventType(), deviceList)
 		event, err = handleFunc(em, event, deviceList, repairBandwidthList)
 		if err != nil {
 			logrus.Error("[EventManager.GetNextEvent] EventHandlerFuncMap error")
@@ -394,9 +415,7 @@ func (em *EventManager) popSameEvent(event *Event) ([]int, []float64) {
 
 func (em *EventManager) SetDiskRepair(diskId int, currentTime float64) {
 	dcManager := data_center.GetDCManager()
-	networkM := dcManager.Network()
-	rackM := dcManager.RackManager()
-	diskM := dcManager.DiskManager()
+	networkM, rackM, diskM := dcManager.Network(), dcManager.RackManager(), dcManager.DiskManager()
 	rackId := dcManager.GetRackIdByDiskId(diskId)
 	if networkM.GetAvailCrossRackRepairBandwidth() == 0 || rackM.GetRackState(rackId) != data_center.RackStateNormal {
 		heap.Push(em.waitQueue, NewEvent(currentTime, EventDiskFail, Disk, 0, []int{diskId}))
@@ -418,7 +437,7 @@ func (em *EventManager) SetDiskRepair(diskId int, currentTime float64) {
 			case data_center.RS:
 				if diskM.GetDiskState(diskNum) == data_center.DiskStateCrashed {
 					numOfFailedChunks++
-				} else if dcManager.GetRackIdByDiskId(diskId) == rackId {
+				} else if dcManager.GetRackIdByDiskId(diskNum) == rackId {
 					numOfAliveChunkInSameRack++
 				}
 			case data_center.LRC:
@@ -444,6 +463,7 @@ func (em *EventManager) SetDiskRepair(diskId int, currentTime float64) {
 	networkM.UpdateAvailCrossRackRepairBandwidth(0)
 	repairTime := float64(crossRackDownload*dcManager.GetChunkSize()) / repairBandwidth
 	repairTime /= float64(3600)
+	logrus.Infof("[EventManager.SetDiskRepair] repair time: %+v", repairTime)
 	if len(stripesToDelay) > 0 {
 		em.delayedStripesNum += len(stripesToDelay)
 		em.delayedRepairDict[diskId] = stripesToDelay

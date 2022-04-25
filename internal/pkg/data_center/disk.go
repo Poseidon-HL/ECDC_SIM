@@ -2,6 +2,7 @@ package data_center
 
 import (
 	"ECDC_SIM/internal/pkg/util"
+	"github.com/gogap/logrus"
 )
 
 type DiskState int8
@@ -17,6 +18,7 @@ type Disk struct {
 	diskClock              *DeviceClock
 	stripeId               []int
 	stripeIndex            []int
+	chunkNum               int
 	state                  DiskState
 	diskFailDistribution   *util.Weibull
 	diskRepairDistribution *util.Weibull
@@ -61,6 +63,13 @@ func (d *Disk) Repair(currentTime float64) {
 	d.diskClock.repairTime = 0
 }
 
+func (d *Disk) GetUnavailableTime(currentTime float64) float64 {
+	if d.state == DiskStateNormal {
+		return d.diskClock.unavailableTime
+	}
+	return d.diskClock.unavailableTime + currentTime - d.diskClock.unavailableStart
+}
+
 func (d *Disk) GetStripes() []int {
 	return d.stripeId
 }
@@ -95,6 +104,7 @@ func NewDisksManager(disksNum, diskCap int, dFailD, dRepairD *util.Weibull) *Dis
 
 func (dm *DisksManager) SetDiskStripe(diskId, stripeId, stripeIdx int) {
 	dm.disks[diskId].stripeId, dm.disks[diskId].stripeIndex = append(dm.disks[diskId].stripeId, stripeId), append(dm.disks[diskId].stripeIndex, stripeIdx)
+	dm.disks[diskId].chunkNum++
 }
 
 func (dm *DisksManager) Reset(currentTime float64) {
@@ -102,6 +112,10 @@ func (dm *DisksManager) Reset(currentTime float64) {
 		disk.diskClock.Init(currentTime)
 		disk.ResetState()
 	}
+	dm.failedDiskNum = 0
+	dm.unavailableDiskNum = 0
+	dm.unavailableDiskMap = make(map[int]int)
+	dm.failedDiskMap = make(map[int]int)
 }
 
 func (dm *DisksManager) isValidDiskId(diskId int) bool {
@@ -163,4 +177,31 @@ func (dm *DisksManager) GetDiskFailDistribution(diskId int) *util.Weibull {
 		return dm.disks[diskId].diskFailDistribution
 	}
 	return nil
+}
+
+func (dm *DisksManager) GetDiskNum() int {
+	return len(dm.disks)
+}
+
+func (dm *DisksManager) GetFailedDiskMap() map[int]int {
+	return dm.failedDiskMap
+}
+
+func (dm *DisksManager) GetDiskUnavailableTime(diskId int, currentTime float64) float64 {
+	if dm.isValidDiskId(diskId) {
+		return dm.disks[diskId].GetUnavailableTime(currentTime) * float64(dm.disks[diskId].chunkNum)
+	}
+	return 0
+}
+
+func (dm *DisksManager) GetSumOfDiskUnavailableTime(currentTime float64) float64 {
+	var sumTime float64
+	for _, disk := range dm.disks {
+		unavailableTime := disk.GetUnavailableTime(currentTime)
+		if unavailableTime != 0 {
+			logrus.Infof("[DisksManager.GetSumOfDiskUnavailableTime] disk: %d, unavailableTime: %+v", disk, unavailableTime)
+		}
+		sumTime += unavailableTime
+	}
+	return sumTime
 }

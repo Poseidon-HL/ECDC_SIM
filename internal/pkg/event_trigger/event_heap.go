@@ -42,7 +42,7 @@ func (eq *EventHeap) Get() *Event {
 	eventInterface := heap.Pop(eq)
 	event, ok := eventInterface.(*Event)
 	if !ok {
-		logrus.Error("[EventHeap.Get] event type error, type=%+v", reflect.TypeOf(event))
+		logrus.Errorf("[EventHeap.Get] event type error, type=%+v", reflect.TypeOf(event))
 	}
 	return event
 }

@@ -81,6 +81,8 @@ func (nm *NodesManager) Reset(currentTime float64) {
 	for _, node := range nm.nodes {
 		node.ResetState()
 	}
+	nm.failedNodesNum = 0
+	nm.failedNodesMap = make(map[int]int)
 }
 
 func (nm *NodesManager) isValidNodeId(nodeId int) bool {
@@ -137,4 +139,8 @@ func (nm *NodesManager) GetNodeFailDistribution(nodeId int) *util.Weibull {
 		return nm.nodes[nodeId].nodeFailDistribution
 	}
 	return nil
+}
+
+func (nm *NodesManager) GetNodeNum() int {
+	return len(nm.nodes)
 }

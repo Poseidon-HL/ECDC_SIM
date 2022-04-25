@@ -50,6 +50,7 @@ type Event struct {
 
 type EventExecResult struct {
 	EventTime float64
+	EventType EventType
 }
 
 func (e *Event) isValidEvent() bool {
@@ -82,6 +83,42 @@ func NewEventManager() *EventManager {
 		waitQueue:         NewEventHeap(make([]*Event, 0)),
 		delayedRepairDict: make(map[int][]int),
 	}
+}
+
+func (em *EventManager) GetDelayedRepairDictLength() int {
+	var count int
+	for _, val := range em.delayedRepairDict {
+		count += len(val)
+	}
+	return count
+}
+
+func (em *EventManager) ResetEventManager() {
+	eventQueue := make([]*Event, 0)
+	dcManager := data_center.GetDCManager()
+	diskM, nodeM := dcManager.DiskManager(), dcManager.NodeManager()
+	for idx := 0; idx < diskM.GetDiskNum(); idx++ {
+		diskFailTime := diskM.GetDiskFailDistribution(idx).Draw()
+		if diskFailTime <= dcManager.GetMissionTime() {
+			logrus.Infof("[EventManager.ResetEventManager] generate disk fail eventTime=%+v", diskFailTime)
+			eventQueue = append(eventQueue, NewEvent(diskFailTime, EventDiskFail, Disk, 0, []int{idx}))
+		}
+	}
+
+	for idx := 0; idx < nodeM.GetNodeNum(); idx++ {
+		nodeFailTime := nodeM.GetNodeFailDistribution(idx).Draw()
+		logrus.Infof("[EventManager.ResetEventManager] generate node fail eventTime=%+v", nodeFailTime)
+		eventQueue = append(eventQueue, NewEvent(nodeFailTime, EventNodeFail, Node, 0, []int{idx}))
+		// TODO transient failure
+	}
+
+	// TODO generate rack failure
+
+	// TODO correlated failures caused by power outage
+
+	// TODO check build heap
+	em.eventQueue = NewEventHeap(eventQueue)
+	dcManager.GenerateDataPlacement()
 }
 
 type EventHandlerFunc func(em *EventManager, event *Event, dList []int, bList []float64) (*Event, error)
@@ -267,14 +304,14 @@ func (em *EventManager) HandleNextEvent(currentTime float64) *EventExecResult {
 	event := em.eventQueue.Get()
 	deviceList, repairBandwidthList := em.popSameEvent(event)
 	if event.eventTime > dcManager.GetMissionTime() {
-		return &EventExecResult{EventTime: currentTime}
+		return &EventExecResult{EventTime: event.eventTime, EventType: EventMissionEnd}
 	}
 	if handleFunc, ok := EventHandlerFuncMap[event.eventType]; ok {
 		event, err = handleFunc(em, event, deviceList, repairBandwidthList)
 		if err != nil {
 			logrus.Error("[EventManager.GetNextEvent] EventHandlerFuncMap error")
 		}
-		return &EventExecResult{EventTime: event.eventTime}
+		return &EventExecResult{EventTime: event.eventTime, EventType: event.eventType}
 	} else {
 		logrus.Error("[EventManager.GetNextEvent] HandlerFunc missing")
 	}
@@ -344,7 +381,7 @@ func (em *EventManager) popSameEvent(event *Event) ([]int, []float64) {
 	if networkM.UseNetwork() && event.eventType == EventDiskRepair {
 		repairBandwidthList = append(repairBandwidthList, event.bandwidth)
 	}
-	for (*em.eventQueue)[0].eventTime == event.eventTime &&
+	for len(*em.eventQueue) > 0 && (*em.eventQueue)[0].eventTime == event.eventTime &&
 		(*em.eventQueue)[0].eventType == event.eventType {
 		event = em.eventQueue.Get()
 		deviceIdList = append(deviceIdList, event.deviceIdList...)
@@ -456,4 +493,11 @@ func (em *EventManager) SetRackFail(rackId int, currentTime float64) {
 	rackM := dcManager.RackManager()
 	heap.Push(em.eventQueue, NewEvent(rackM.GetRackFailDistribution(rackId).Draw()+currentTime,
 		EventRackRepair, Rack, 0, []int{rackId}))
+}
+
+func (em *EventManager) GetSingleChunkRepairRatio() float64 {
+	if em.repairStripesNum != 0 {
+		return float64(em.repairStripesSingleChunkNum) / float64(em.repairStripesNum)
+	}
+	return 0
 }

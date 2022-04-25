@@ -59,6 +59,12 @@ func NewRacksManager(racksNum int, rFailD, rRepairD *util.Weibull) *RacksManager
 	return racksManager
 }
 
+func (rm *RacksManager) Reset(currentTime float64) {
+	for _, rack := range rm.racks {
+		rack.ResetState()
+	}
+}
+
 func (rm *RacksManager) isValidRackId(rackId int) bool {
 	return rackId >= 0 && rackId < len(rm.racks)
 }
@@ -94,4 +100,8 @@ func (rm *RacksManager) GetRackFailDistribution(rackId int) *util.Weibull {
 		return rm.racks[rackId].rackFailDistribution
 	}
 	return nil
+}
+
+func (rm *RacksManager) GetRackNum() int {
+	return len(rm.racks)
 }

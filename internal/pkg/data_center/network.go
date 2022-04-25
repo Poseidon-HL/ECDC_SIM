@@ -9,8 +9,9 @@ type NetworkManager struct {
 	availIntraRackRepairBandwidth []float64
 }
 
-func NewNetworkManager(numOfRacks int, maxCrossRackRepairBandwidth, maxIntraRackRepairBandwidth float64) *NetworkManager {
+func NewNetworkManager(numOfRacks int, useNetwork bool, maxCrossRackRepairBandwidth, maxIntraRackRepairBandwidth float64) *NetworkManager {
 	network := &NetworkManager{
+		useNetwork:                    useNetwork,
 		maxCrossRackRepairBandwidth:   maxCrossRackRepairBandwidth,
 		maxIntraRackRepairBandwidth:   maxIntraRackRepairBandwidth,
 		availCrossRackRepairBandwidth: maxCrossRackRepairBandwidth,
@@ -19,6 +20,13 @@ func NewNetworkManager(numOfRacks int, maxCrossRackRepairBandwidth, maxIntraRack
 		network.availIntraRackRepairBandwidth = append(network.availIntraRackRepairBandwidth, maxIntraRackRepairBandwidth)
 	}
 	return network
+}
+
+func (n *NetworkManager) Reset() {
+	n.availCrossRackRepairBandwidth = n.maxCrossRackRepairBandwidth
+	for idx := range n.availIntraRackRepairBandwidth {
+		n.availIntraRackRepairBandwidth[idx] = n.maxIntraRackRepairBandwidth
+	}
 }
 
 func (n *NetworkManager) UpdateAvailCrossRackRepairBandwidth(newBandwidth float64) {

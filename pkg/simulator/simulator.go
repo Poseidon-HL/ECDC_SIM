@@ -9,6 +9,7 @@ import (
 type Simulator struct {
 	dcConf       *data_center.DCConf
 	ecConf       *data_center.ErasureCodeConf
+	runningConf  *event_trigger.RunningConfig
 	eventManager *event_trigger.EventManager
 }
 
@@ -19,12 +20,12 @@ type SimResult struct {
 	SingleChunkRepairRatio float64
 }
 
-func NewSimulator(dcConf *data_center.DCConf, ecConf *data_center.ErasureCodeConf) *Simulator {
+func NewSimulator(dcConf *data_center.DCConf, ecConf *data_center.ErasureCodeConf, rConf *event_trigger.RunningConfig) *Simulator {
 	data_center.InitDCManager(dcConf, ecConf)
 	return &Simulator{
 		dcConf:       dcConf,
 		ecConf:       ecConf,
-		eventManager: event_trigger.NewEventManager(),
+		eventManager: event_trigger.NewEventManager(rConf),
 	}
 }
 
@@ -40,6 +41,7 @@ func (s *Simulator) RunIteration(iteration int) *SimResult {
 	for {
 		eventExecRes := s.eventManager.HandleNextEvent(currentTime)
 		currentTime = eventExecRes.EventTime
+		logrus.Infof("[Simulator.RunIteration] event res:%+v", eventExecRes)
 		if eventExecRes.EventTime > s.dcConf.MissionTime {
 			break
 		}

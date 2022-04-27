@@ -2,19 +2,24 @@ package event_trigger
 
 import (
 	"ECDC_SIM/internal/pkg/data_center"
+	"ECDC_SIM/internal/pkg/util"
 	"container/heap"
 	"github.com/gogap/logrus"
 )
 
-var EventHandlerFuncMap = map[EventType]EventHandlerFunc{
-	EventDiskFail:            DiskFailHandler,
-	EventDiskRepair:          DiskRepairHandler,
-	EventNodeFail:            NodeFailHandler,
-	EventNodeTransientFail:   NodeTransientFailHandler,
-	EventNodeTransientRepair: NodeTransientRepairHandler,
-	EventRackFail:            RackFailHandler,
-	EventRackRepair:          RackRepairHandler,
-}
+var (
+	EventHandlerFuncMap = map[EventType]EventHandlerFunc{
+		EventDiskFail:            DiskFailHandler,
+		EventDiskRepair:          DiskRepairHandler,
+		EventNodeFail:            NodeFailHandler,
+		EventNodeTransientFail:   NodeTransientFailHandler,
+		EventNodeTransientRepair: NodeTransientRepairHandler,
+		EventRackFail:            RackFailHandler,
+		EventRackRepair:          RackRepairHandler,
+	}
+	loggerPath  = `D:\Code\Projects\Go\ECDC_SIM\output\event_log\`
+	eventLogger = util.GetLogger(loggerPath, "event")
+)
 
 type EventType int8
 
@@ -87,7 +92,14 @@ func NewEvent(eventTime float64, eventType EventType, deviceType DeviceType, ban
 	}
 }
 
+type RunningConfig struct {
+	UseTrace               bool
+	UsePowerOutage         bool
+	EnableTransientFailure bool
+}
+
 type EventManager struct {
+	RunningConfig
 	eventQueue *EventHeap
 	waitQueue  *EventHeap
 
@@ -97,8 +109,13 @@ type EventManager struct {
 	delayedRepairDict           map[int][]int
 }
 
-func NewEventManager() *EventManager {
+func NewEventManager(configs *RunningConfig) *EventManager {
 	return &EventManager{
+		RunningConfig: RunningConfig{
+			UseTrace:               configs.UseTrace,
+			UsePowerOutage:         configs.UsePowerOutage,
+			EnableTransientFailure: configs.EnableTransientFailure,
+		},
 		eventQueue:        NewEventHeap(make([]*Event, 0)),
 		waitQueue:         NewEventHeap(make([]*Event, 0)),
 		delayedRepairDict: make(map[int][]int),
@@ -113,32 +130,38 @@ func (em *EventManager) GetDelayedRepairDictLength() int {
 	return count
 }
 
+// ResetEventManager 根据各个设备的失败概率分布，生成可能发生的故障事件
 func (em *EventManager) ResetEventManager() {
 	eventQueue := make([]*Event, 0)
 	dcManager := data_center.GetDCManager()
-	diskM, nodeM := dcManager.DiskManager(), dcManager.NodeManager()
+	diskM, nodeM, rackM := dcManager.DiskManager(), dcManager.NodeManager(), dcManager.RackManager()
 	for idx := 0; idx < diskM.GetDiskNum(); idx++ {
 		diskFailTime := diskM.GetDiskFailDistribution(idx).Draw()
 		if diskFailTime <= dcManager.GetMissionTime() {
-			//logrus.Infof("[EventManager.ResetEventManager] generate disk fail eventTime=%+v", diskFailTime)
+			logrus.Infof("[EventManager.ResetEventManager] generate disk fail eventTime=%+v", diskFailTime)
 			eventQueue = append(eventQueue, NewEvent(diskFailTime, EventDiskFail, Disk, 0, []int{idx}))
 		}
 	}
 
 	for idx := 0; idx < nodeM.GetNodeNum(); idx++ {
 		nodeFailTime := nodeM.GetNodeFailDistribution(idx).Draw()
-		//logrus.Infof("[EventManager.ResetEventManager] generate node fail eventTime=%+v", nodeFailTime)
+		logrus.Infof("[EventManager.ResetEventManager] generate node fail eventTime=%+v", nodeFailTime)
 		eventQueue = append(eventQueue, NewEvent(nodeFailTime, EventNodeFail, Node, 0, []int{idx}))
-		// TODO transient failure
+		if em.EnableTransientFailure {
+			eventQueue = append(eventQueue, NewEvent(nodeM.GetTransitFailDistribution(idx).Draw(), EventNodeTransientFail, Node, 0, []int{idx}))
+		}
 	}
 
-	// TODO generate rack failure
+	if !em.UsePowerOutage && em.EnableTransientFailure {
+		for idx := 0; idx < rackM.GetRackNum(); idx++ {
+			rackFailTime := rackM.GetRackFailDistribution(idx).Draw()
+			eventQueue = append(eventQueue, NewEvent(rackFailTime, EventRackFail, Rack, 0, []int{idx}))
+		}
+	}
 
 	// TODO correlated failures caused by power outage
 
-	// TODO check build heap
 	em.eventQueue = NewEventHeap(eventQueue)
-	dcManager.GenerateDataPlacement()
 }
 
 type EventHandlerFunc func(em *EventManager, event *Event, dList []int, bList []float64) (*Event, error)
@@ -180,7 +203,7 @@ func DiskRepairHandler(em *EventManager, event *Event, dList []int, bList []floa
 			}
 			if allDiskOK {
 				nodeM.RepairNode(nodeId)
-				if !dcManager.UseTrace() {
+				if !em.UseTrace {
 					em.SetNodeFail(nodeId, repairTime)
 				}
 			}
@@ -233,7 +256,7 @@ func NodeTransientFailHandler(em *EventManager, event *Event, dList []int, bList
 				}
 			}
 		}
-		if dcManager.UseTrace() {
+		if em.UseTrace {
 			em.SetNodeTransientRepair(nodeId, failTime)
 		}
 	}
@@ -254,7 +277,7 @@ func NodeTransientRepairHandler(em *EventManager, event *Event, dList []int, bLi
 				}
 			}
 		}
-		if !dcManager.UseTrace() {
+		if !em.UseTrace {
 			em.SetNodeTransientFail(nodeId, repairTime)
 		}
 	}
@@ -281,7 +304,7 @@ func RackFailHandler(em *EventManager, event *Event, dList []int, bList []float6
 				}
 			}
 		}
-		if !dcManager.UsePowerOutage() {
+		if !em.UsePowerOutage {
 			em.SetRackRepair(rackId, failTime)
 		}
 	}
@@ -308,7 +331,7 @@ func RackRepairHandler(em *EventManager, event *Event, dList []int, bList []floa
 				}
 			}
 		}
-		if !dcManager.UsePowerOutage() {
+		if !em.UsePowerOutage {
 			em.SetRackFail(rackId, repairTime)
 		}
 	}
@@ -324,10 +347,11 @@ func (em *EventManager) HandleNextEvent(currentTime float64) *EventExecResult {
 	event := em.eventQueue.Get()
 	deviceList, repairBandwidthList := em.popSameEvent(event)
 	if event.eventTime > dcManager.GetMissionTime() {
+		eventLogger.Infof("[EventManager.HandleNextEvent] next event timeout, time=%+v", event.eventTime)
 		return &EventExecResult{EventTime: event.eventTime, EventType: EventMissionEnd}
 	}
 	if handleFunc, ok := EventHandlerFuncMap[event.eventType]; ok {
-		logrus.Infof("[EventManager.HandleNextEvent] receive event, time=%+v, type=%s, deviceList=%+v", event.eventTime, event.EventType(), deviceList)
+		eventLogger.Infof("[EventManager.HandleNextEvent] receive event, time=%+v, type=%s, deviceList=%+v", event.eventTime, event.EventType(), deviceList)
 		event, err = handleFunc(em, event, deviceList, repairBandwidthList)
 		if err != nil {
 			logrus.Error("[EventManager.GetNextEvent] EventHandlerFuncMap error")

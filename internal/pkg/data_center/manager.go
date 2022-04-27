@@ -32,8 +32,6 @@ type DCManager struct {
 	erasureCodeConf *ErasureCodeConf
 	stripesLocation [][]int
 	missionTime     float64
-	useTrace        bool
-	usePowerOutage  bool
 }
 
 type DCConf struct {
@@ -51,8 +49,6 @@ type DCConf struct {
 	MaxCrossRackRepairBandwidth float64
 	MaxIntraRackRepairBandwidth float64
 	MissionTime                 float64
-	UseTrace                    bool
-	UsePowerOutage              bool
 	UseNetwork                  bool
 }
 
@@ -67,8 +63,6 @@ func InitDCManager(dcConf *DCConf, eCConf *ErasureCodeConf) {
 		dataChunksNum:   dcConf.DataChunksNum,
 		erasureCodeConf: eCConf,
 		missionTime:     dcConf.MissionTime,
-		useTrace:        dcConf.UseTrace,
-		usePowerOutage:  dcConf.UsePowerOutage,
 	}
 	dcManager.nodesManager = NewNodesManager(dcConf.RacksNum*dcConf.NodesPerRack, dcConf.NFailD, dcConf.NTFailD, dcConf.NTRepairD)
 	dcManager.disksManager = NewDisksManager(dcManager.nodesManager.nodesNum*dcConf.DisksPerNode, dcConf.DiskCapacity, dcConf.DFailD, dcConf.DRepairD)
@@ -86,6 +80,7 @@ func (dcm *DCManager) Reset() {
 	dcm.nodesManager.Reset(0)
 	dcm.rackManager.Reset(0)
 	dcm.networkManager.Reset()
+	dcm.GenerateDataPlacement()
 }
 
 func (dcm *DCManager) DiskManager() *DisksManager {
@@ -151,19 +146,12 @@ func (dcm *DCManager) GetMissionTime() float64 {
 	return dcm.missionTime
 }
 
-func (dcm *DCManager) UseTrace() bool {
-	return dcm.useTrace
-}
-
-func (dcm *DCManager) UsePowerOutage() bool {
-	return dcm.usePowerOutage
-}
-
 // GenerateDataPlacement 生成数据块放置策略
 func (dcm *DCManager) GenerateDataPlacement() {
 	var err error
 	switch dcm.erasureCodeConf.CodeType {
 	case RS:
+		logrus.Info("[DCManager.GenerateDataPlacement] generate placement for code RS")
 		err = dcm.GeneratePlacementByArchType()
 		if err != nil {
 			logrus.Errorf("DCManager.GenerateDataPlacement error, codeType=RS, err=%+v", err)
@@ -194,7 +182,7 @@ func (dcm *DCManager) GeneratePlacementByArchType() error {
 		}
 	case HIERARCHICAL:
 	default:
-
+		logrus.Error("[DCManager.GeneratePlacementByArchType] invalid chunk place type")
 	}
 	return nil
 }

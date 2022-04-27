@@ -6,6 +6,10 @@ import (
 	"time"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 type Weibull struct {
 	shape    float64
 	scale    float64
@@ -48,7 +52,6 @@ func (w *Weibull) HazardRate(x float64) float64 {
 }
 
 func (w *Weibull) Draw() float64 {
-	rand.Seed(time.Now().UnixNano())
 	u := 1 - rand.Float64()
 	return w.scale*math.Pow(-math.Log(u), 1/w.shape) + w.location
 }

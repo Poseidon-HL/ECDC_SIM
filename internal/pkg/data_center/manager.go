@@ -32,6 +32,7 @@ type DCManager struct {
 	erasureCodeConf *ErasureCodeConf
 	stripesLocation [][]int
 	missionTime     float64
+	powerOutageD    *util.Weibull
 }
 
 type DCConf struct {
@@ -46,6 +47,7 @@ type DCConf struct {
 	NFailD, NTFailD, NTRepairD  *util.Weibull
 	DFailD, DRepairD            *util.Weibull
 	RFailD, RRepairD            *util.Weibull
+	powerOutageD                *util.Weibull
 	MaxCrossRackRepairBandwidth float64
 	MaxIntraRackRepairBandwidth float64
 	MissionTime                 float64
@@ -146,18 +148,20 @@ func (dcm *DCManager) GetMissionTime() float64 {
 	return dcm.missionTime
 }
 
+func (dcm *DCManager) GetPowerOutageD() *util.Weibull {
+	return dcm.powerOutageD
+}
+
 // GenerateDataPlacement 生成数据块放置策略
 func (dcm *DCManager) GenerateDataPlacement() {
 	var err error
 	switch dcm.erasureCodeConf.CodeType {
-	case RS:
+	case RS, LRC:
 		logrus.Info("[DCManager.GenerateDataPlacement] generate placement for code RS")
 		err = dcm.GeneratePlacementByArchType()
 		if err != nil {
 			logrus.Errorf("DCManager.GenerateDataPlacement error, codeType=RS, err=%+v", err)
 		}
-	case LRC:
-
 	default:
 
 	}

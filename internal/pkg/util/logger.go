@@ -10,14 +10,21 @@ import (
 )
 
 var (
-	loggerMap map[string]*logging.Logger
-	timeStamp int64
-	once      sync.Once
+	loggerMap     map[string]*logging.Logger
+	timeStamp     int64
+	once          sync.Once
+	defaultLogger *logging.Logger
 )
 
 func InitLogger() {
 	loggerMap = make(map[string]*logging.Logger)
 	timeStamp = time.Now().UnixNano()
+	defaultLogger, _ = logging.GetLogger("default")
+
+}
+
+func GetDefaultLogger() *logging.Logger {
+	return defaultLogger
 }
 
 func GetLogger(filePath, moduleName string) *logging.Logger {

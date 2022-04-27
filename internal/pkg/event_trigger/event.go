@@ -159,6 +159,14 @@ func (em *EventManager) ResetEventManager() {
 		}
 	}
 
+	if em.UseTrace && em.UsePowerOutage {
+		for idx := 0; idx < rackM.GetRackNum(); idx++ {
+			occurTime := dcManager.GetPowerOutageD().Draw()
+			for occurTime < dcManager.GetMissionTime() {
+				// TODO add some random function
+			}
+		}
+	}
 	// TODO correlated failures caused by power outage
 
 	em.eventQueue = NewEventHeap(eventQueue)
@@ -453,6 +461,8 @@ func (em *EventManager) SetDiskRepair(diskId int, currentTime float64) {
 	// 针对这一个块上的所有条带，均需要进行修复
 	for _, stripeId := range stripeIdList {
 		numOfFailedChunks, numOfAliveChunkInSameRack, numOfUnavailingChunk := 0, 0, 0
+		idx, failIdx := 0, 0
+		aliveChunkInSameRack := make([]int, 0)
 		for _, diskNum := range dcManager.GetStripesLocation(stripeId) {
 			if diskM.GetDiskState(diskNum) != data_center.DiskStateNormal {
 				numOfUnavailingChunk++
@@ -466,6 +476,16 @@ func (em *EventManager) SetDiskRepair(diskId int, currentTime float64) {
 				}
 			case data_center.LRC:
 				// TODO
+				if diskM.GetDiskState(diskNum) == data_center.DiskStateCrashed {
+					numOfFailedChunks++
+					if diskNum == diskId {
+						failIdx = idx
+					}
+				} else if dcManager.GetRackIdByDiskId(diskId) == rackId {
+					numOfAliveChunkInSameRack += 1
+					aliveChunkInSameRack = append(aliveChunkInSameRack, idx)
+				}
+				idx++
 			}
 		}
 		if numOfFailedChunks == 1 {
@@ -481,6 +501,37 @@ func (em *EventManager) SetDiskRepair(diskId int, currentTime float64) {
 				crossRackDownload += dcManager.ErasureCodeConf().K - numOfAliveChunkInSameRack
 			}
 		case data_center.LRC:
+			if numOfFailedChunks == 1 {
+				// 全局校验块
+				if util.ContainsInt(dcManager.ErasureCodeConf().LRCGlobalChunkParity, failIdx) {
+					if numOfAliveChunkInSameRack < dcManager.ErasureCodeConf().K {
+						crossRackDownload += dcManager.ErasureCodeConf().K - numOfAliveChunkInSameRack
+					}
+				} else {
+					// 判断位置
+					failedGroupId := 0
+					for gid := 0; gid < dcManager.ErasureCodeConf().L; gid++ {
+						if util.ContainsInt(dcManager.ErasureCodeConf().LRCDataChunkOffset[gid], failIdx) || failIdx == dcManager.ErasureCodeConf().LRCLocalChunkParity[gid] {
+							failedGroupId = gid
+							break
+						}
+					}
+					numOfAliveChunkInSameRack = 0
+					for _, chunk := range aliveChunkInSameRack {
+						if util.ContainsInt(dcManager.ErasureCodeConf().LRCDataChunkOffset[failedGroupId], chunk) {
+							// TODO check logic here
+							numOfAliveChunkInSameRack++
+						}
+					}
+					if numOfAliveChunkInSameRack < dcManager.ErasureCodeConf().K/dcManager.ErasureCodeConf().L {
+						crossRackDownload += dcManager.ErasureCodeConf().L - numOfAliveChunkInSameRack
+					}
+				}
+			} else {
+				if numOfAliveChunkInSameRack < dcManager.ErasureCodeConf().K {
+					crossRackDownload += dcManager.ErasureCodeConf().K - numOfAliveChunkInSameRack
+				}
+			}
 		}
 	}
 	repairBandwidth := networkM.GetAvailCrossRackRepairBandwidth()

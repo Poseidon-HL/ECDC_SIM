@@ -7,7 +7,9 @@ import (
 )
 
 var (
-	dcManager *DCManager
+	dcManager  *DCManager
+	loggerPath = `D:\Code\Projects\Go\ECDC_SIM\output\data_center_log\`
+	dcLogger   = util.GetLogger(loggerPath, "data_center")
 )
 
 type DCState int8
@@ -200,6 +202,51 @@ func (dcm *DCManager) GetDiskRandomlyByRack(rackId int) int {
 	return util.RandomInt(minDiskNumber, maxDiskNumber)
 }
 
+func (dcm *DCManager) CheckLRCDataLoss() (bool, int, int) {
+	failedDiskMap := dcm.disksManager.GetFailedDiskMap()
+	stripeIdList := make([]int, 0)
+	for _, failedDisk := range failedDiskMap {
+		stripeIdList = append(stripeIdList, dcm.disksManager.GetDiskStripes(failedDisk)...)
+	}
+	var failedStripes int
+	var lostChunks int
+	var dataloss bool
+	for _, stripeId := range stripeIdList {
+		curStripeLostChunksNum := 0
+		curStripeFailedDiskNum := make([]int, dcm.erasureCodeConf.L)
+		globalFailedDiskNum := 0
+		idx := 0
+		for stripeDiskId := range dcm.GetStripesLocation(stripeId) {
+			chunkType, gid := dcm.erasureCodeConf.LRCChunkType(idx)
+			if _, ok := failedDiskMap[stripeDiskId]; ok {
+				curStripeLostChunksNum++
+				if chunkType == GlobalChunkParity {
+					globalFailedDiskNum++
+				}
+				if chunkType == DataChunk {
+					curStripeFailedDiskNum[gid]++
+					break
+				}
+			} else {
+				if chunkType == LocalChunkParity && curStripeFailedDiskNum[gid] > 0 {
+					curStripeFailedDiskNum[gid]--
+					break
+				}
+			}
+			idx++
+		}
+		for _, num := range curStripeFailedDiskNum {
+			globalFailedDiskNum += num
+		}
+		if globalFailedDiskNum > dcm.erasureCodeConf.N-dcm.erasureCodeConf.K-dcm.erasureCodeConf.L {
+			failedStripes++
+			lostChunks += curStripeLostChunksNum
+			dataloss = true
+		}
+	}
+	return dataloss, failedStripes, lostChunks
+}
+
 func (dcm *DCManager) CheckDataLoss() (bool, int, int) {
 	failedDiskMap := dcm.disksManager.GetFailedDiskMap()
 	// TODO check logic here
@@ -229,6 +276,8 @@ func (dcm *DCManager) CheckDataLoss() (bool, int, int) {
 		}
 		return dataLoss, failedStripes, lostChunks
 	case LRC:
+		// TODO params not right check the cal func
+		return dcm.CheckLRCDataLoss()
 	}
 
 	return false, 0, 0

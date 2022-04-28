@@ -2,7 +2,6 @@ package data_center
 
 import (
 	"ECDC_SIM/internal/pkg/util"
-	"github.com/gogap/logrus"
 )
 
 type DiskState int8
@@ -57,6 +56,7 @@ func (d *Disk) Online(currentTime float64) {
 
 func (d *Disk) Repair(currentTime float64) {
 	d.state = DiskStateNormal
+	dcLogger.Infof("currentTime:%+v, unavailableTime=%+v, unavailableStart=%+v", currentTime, d.diskClock.unavailableTime, d.diskClock.unavailableStart)
 	d.diskClock.unavailableTime += currentTime - d.diskClock.unavailableStart
 	d.diskClock.globalTime = d.diskClock.lastUpdateTime
 	d.diskClock.localTime = 0
@@ -64,6 +64,7 @@ func (d *Disk) Repair(currentTime float64) {
 }
 
 func (d *Disk) GetUnavailableTime(currentTime float64) float64 {
+	//dcLogger.Infof("currentTime:%+v, unavailableTime=%+v, unavailableStart=%+v", currentTime, d.diskClock.unavailableTime, d.diskClock.unavailableStart)
 	if d.state == DiskStateNormal {
 		return d.diskClock.unavailableTime
 	}
@@ -199,7 +200,7 @@ func (dm *DisksManager) GetSumOfDiskUnavailableTime(currentTime float64) float64
 	for id, disk := range dm.disks {
 		unavailableTime := disk.GetUnavailableTime(currentTime)
 		if unavailableTime != 0 {
-			logrus.Infof("[DisksManager.GetSumOfDiskUnavailableTime] disk: %d, unavailableTime: %+v", id, unavailableTime)
+			dcLogger.Infof("[DisksManager.GetSumOfDiskUnavailableTime] disk: %d, unavailableTime: %+v", id, unavailableTime)
 		}
 		sumTime += unavailableTime
 	}

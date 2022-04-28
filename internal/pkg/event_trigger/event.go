@@ -481,7 +481,7 @@ func (em *EventManager) SetDiskRepair(diskId int, currentTime float64) {
 					if diskNum == diskId {
 						failIdx = idx
 					}
-				} else if dcManager.GetRackIdByDiskId(diskId) == rackId {
+				} else if dcManager.GetRackIdByDiskId(diskNum) == rackId {
 					numOfAliveChunkInSameRack += 1
 					aliveChunkInSameRack = append(aliveChunkInSameRack, idx)
 				}
